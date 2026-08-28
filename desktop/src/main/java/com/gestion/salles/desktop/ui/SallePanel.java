@@ -4,18 +4,20 @@ import com.gestion.salles.desktop.api.ApiClient;
 import com.gestion.salles.desktop.model.Salle;
 
 import javax.swing.JButton;
+import javax.swing.JDialog;
 import javax.swing.JPanel;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
+import java.awt.FlowLayout;
+import java.awt.Window;
 import java.util.List;
+import java.awt.Color;
 
 public class SallePanel extends JPanel {
 
     private final ApiClient api;
-    private final JTextField codeField = UiKit.field(12);
-    private final JTextField designationField = UiKit.field(24);
     private final DefaultTableModel model;
     private final JTable table;
 
@@ -24,48 +26,34 @@ public class SallePanel extends JPanel {
         this.api = api;
         setOpaque(false);
 
-        model = new DefaultTableModel(new Object[]{"Code salle", "Désignation"}, 0) {
+        model = new DefaultTableModel(new Object[]{"Code salle", "Désignation", "Actions"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
-                return false;
+                return column == 2;
             }
         };
         table = new JTable(model);
-        table.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                remplirDepuisSelection();
-            }
-        });
 
-        JPanel card = UiKit.card("CRUD salles");
+        JPanel card = UiKit.card("Liste des salles");
         JPanel content = new JPanel(new BorderLayout(10, 12));
         content.setOpaque(false);
 
-        JPanel form = UiKit.formPanel();
-        UiKit.addFormRow(form, 0, "Code salle", codeField);
-        UiKit.addFormRow(form, 1, "Désignation", designationField);
-
-        JButton ajouter = UiKit.primaryButton("Ajouter");
-        JButton modifier = UiKit.accentButton("Modifier");
-        JButton supprimer = UiKit.dangerButton("Supprimer");
-        JButton vider = UiKit.ghostButton("Vider le formulaire");
+        JButton ajouter = UiKit.primaryButton("Ajouter", new UiKit.PlusIcon(Color.WHITE, 13));
         JButton actualiser = UiKit.ghostButton("Actualiser");
-
-        ajouter.addActionListener(e -> ajouter());
-        modifier.addActionListener(e -> modifier());
-        supprimer.addActionListener(e -> supprimer());
-        vider.addActionListener(e -> viderFormulaire());
+        ajouter.addActionListener(e -> ouvrirFormulaire(null));
         actualiser.addActionListener(e -> recharger());
 
-        JPanel north = new JPanel(new BorderLayout(0, 10));
-        north.setOpaque(false);
-        north.add(form, BorderLayout.CENTER);
-        north.add(UiKit.buttonBar(ajouter, modifier, supprimer, vider, actualiser), BorderLayout.SOUTH);
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        toolbar.setOpaque(false);
+        toolbar.add(actualiser);
+        toolbar.add(ajouter);
 
-        content.add(north, BorderLayout.NORTH);
+        content.add(toolbar, BorderLayout.NORTH);
         content.add(UiKit.tableScroll(table), BorderLayout.CENTER);
         card.add(content, BorderLayout.CENTER);
         add(card, BorderLayout.CENTER);
+
+        UiKit.addActionsColumn(table, this::ouvrirModification, this::supprimer);
     }
 
     public void recharger() {
@@ -79,79 +67,71 @@ public class SallePanel extends JPanel {
     private void afficher(List<Salle> salles) {
         model.setRowCount(0);
         for (Salle s : salles) {
-            model.addRow(new Object[]{s.getCodesal(), s.getDesignation()});
+            model.addRow(new Object[]{s.getCodesal(), s.getDesignation(), ""});
         }
     }
 
-    private void ajouter() {
-        try {
-            api.creerSalle(lireFormulaire(true));
-            UiKit.info(this, "Salle ajoutée.");
-            recharger();
-            viderFormulaire();
-        } catch (Exception ex) {
-            UiKit.error(this, ex.getMessage());
+    private void ouvrirFormulaire(Salle existant) {
+        JTextField codeField = UiKit.field(16);
+        JTextField designationField = UiKit.field(24);
+
+        boolean modification = existant != null;
+        if (modification) {
+            codeField.setText(existant.getCodesal());
+            codeField.setEditable(false);
+            designationField.setText(existant.getDesignation());
         }
+
+        JPanel form = UiKit.formPanel();
+        UiKit.addFormRow(form, 0, "Code salle", codeField);
+        UiKit.addFormRow(form, 1, "Désignation", designationField);
+
+        Window owner = UiKit.windowOf(this);
+        JDialog dialog = UiKit.formDialog(owner,
+                modification ? "Modifier la salle" : "Ajouter une salle", form, () -> {
+                    String code = codeField.getText().trim();
+                    String designation = designationField.getText().trim();
+                    if (code.isEmpty() || designation.isEmpty()) {
+                        UiKit.error(this, "Le code et la désignation sont obligatoires.");
+                        return false;
+                    }
+                    try {
+                        Salle salle = new Salle(code, designation);
+                        if (modification) {
+                            api.modifierSalle(code, salle);
+                            UiKit.info(this, "Salle modifiée.");
+                        } else {
+                            api.creerSalle(salle);
+                            UiKit.info(this, "Salle ajoutée.");
+                        }
+                        recharger();
+                        return true;
+                    } catch (Exception ex) {
+                        UiKit.error(this, ex.getMessage());
+                        return false;
+                    }
+                });
+        dialog.setVisible(true);
     }
 
-    private void modifier() {
-        if (table.getSelectedRow() < 0) {
-            UiKit.error(this, "Sélectionnez une salle à modifier.");
-            return;
-        }
-        try {
-            String code = String.valueOf(model.getValueAt(table.getSelectedRow(), 0));
-            Salle salle = lireFormulaire(false);
-            salle.setCodesal(code);
-            api.modifierSalle(code, salle);
-            UiKit.info(this, "Salle modifiée.");
-            recharger();
-        } catch (Exception ex) {
-            UiKit.error(this, ex.getMessage());
-        }
+    private void ouvrirModification(int row) {
+        Salle salle = new Salle(
+                String.valueOf(model.getValueAt(row, 0)),
+                String.valueOf(model.getValueAt(row, 1))
+        );
+        ouvrirFormulaire(salle);
     }
 
-    private void supprimer() {
-        if (table.getSelectedRow() < 0) {
-            UiKit.error(this, "Sélectionnez une salle à supprimer.");
-            return;
-        }
-        String code = String.valueOf(model.getValueAt(table.getSelectedRow(), 0));
+    private void supprimer(int row) {
+        String code = String.valueOf(model.getValueAt(row, 0));
         if (!UiKit.confirm(this, "Supprimer la salle " + code + " ?")) {
             return;
         }
         try {
             api.supprimerSalle(code);
             recharger();
-            viderFormulaire();
         } catch (Exception ex) {
             UiKit.error(this, ex.getMessage());
         }
-    }
-
-    private Salle lireFormulaire(boolean avecCode) {
-        String code = codeField.getText().trim();
-        String designation = designationField.getText().trim();
-        if ((avecCode && code.isEmpty()) || designation.isEmpty()) {
-            throw new IllegalArgumentException("Le code et la désignation sont obligatoires.");
-        }
-        return new Salle(code, designation);
-    }
-
-    private void remplirDepuisSelection() {
-        int row = table.getSelectedRow();
-        if (row < 0) {
-            return;
-        }
-        codeField.setText(String.valueOf(model.getValueAt(row, 0)));
-        designationField.setText(String.valueOf(model.getValueAt(row, 1)));
-        codeField.setEditable(false);
-    }
-
-    private void viderFormulaire() {
-        table.clearSelection();
-        codeField.setText("");
-        designationField.setText("");
-        codeField.setEditable(true);
     }
 }

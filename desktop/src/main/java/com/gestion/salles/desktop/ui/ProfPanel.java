@@ -4,6 +4,7 @@ import com.gestion.salles.desktop.api.ApiClient;
 import com.gestion.salles.desktop.model.Prof;
 
 import javax.swing.JButton;
+import javax.swing.JDialog;
 import javax.swing.JPanel;
 import javax.swing.JTable;
 import javax.swing.JTextField;
@@ -11,15 +12,13 @@ import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
 import java.awt.GridBagConstraints;
 import java.awt.Insets;
+import java.awt.Window;
 import java.util.List;
+import java.awt.Color;
 
 public class ProfPanel extends JPanel {
 
     private final ApiClient api;
-    private final JTextField codeField = UiKit.field(12);
-    private final JTextField nomField = UiKit.field(16);
-    private final JTextField prenomField = UiKit.field(16);
-    private final JTextField gradeField = UiKit.field(16);
     private final JTextField searchField = UiKit.field(22);
     private final DefaultTableModel model;
     private final JTable table;
@@ -29,40 +28,28 @@ public class ProfPanel extends JPanel {
         this.api = api;
         setOpaque(false);
 
-        model = new DefaultTableModel(new Object[]{"Code", "Nom", "Prénom", "Grade"}, 0) {
+        model = new DefaultTableModel(new Object[]{"Code", "Nom", "Prénom", "Grade", "Actions"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
-                return false;
+                return column == 4;
             }
         };
         table = new JTable(model);
-        table.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                remplirDepuisSelection();
-            }
-        });
 
-        JPanel card = UiKit.card("CRUD professeurs  —  recherche par code ou nom");
+        JPanel card = UiKit.card("Liste des professeurs");
         JPanel content = new JPanel(new BorderLayout(10, 12));
         content.setOpaque(false);
 
-        JPanel form = UiKit.formPanel();
-        UiKit.addFormRow(form, 0, "Code prof", codeField);
-        UiKit.addFormRow(form, 1, "Nom", nomField);
-        UiKit.addFormRow(form, 2, "Prénom", prenomField);
-        UiKit.addFormRow(form, 3, "Grade", gradeField);
+        // Bouton Ajouter : au-dessus de la barre de recherche, aligné à droite
+        JButton ajouter = UiKit.primaryButton("Ajouter", new UiKit.PlusIcon(Color.WHITE, 13));
+        ajouter.addActionListener(e -> ouvrirFormulaire(null));
+        JPanel topBar = new JPanel(new BorderLayout());
+        topBar.setOpaque(false);
+        topBar.add(ajouter, BorderLayout.EAST);
 
-        JButton ajouter = UiKit.primaryButton("Ajouter");
-        JButton modifier = UiKit.accentButton("Modifier");
-        JButton supprimer = UiKit.dangerButton("Supprimer");
-        JButton vider = UiKit.ghostButton("Vider le formulaire");
-        JButton rechercher = UiKit.primaryButton("Rechercher");
+        // Barre de recherche
+        JButton rechercher = UiKit.primaryButton("Rechercher", new UiKit.SearchIcon(Color.WHITE, 13));
         JButton tous = UiKit.ghostButton("Tous");
-
-        ajouter.addActionListener(e -> ajouter());
-        modifier.addActionListener(e -> modifier());
-        supprimer.addActionListener(e -> supprimer());
-        vider.addActionListener(e -> viderFormulaire());
         rechercher.addActionListener(e -> rechercher());
         tous.addActionListener(e -> recharger());
         searchField.addActionListener(e -> rechercher());
@@ -87,14 +74,15 @@ public class ProfPanel extends JPanel {
 
         JPanel north = new JPanel(new BorderLayout(0, 10));
         north.setOpaque(false);
-        north.add(form, BorderLayout.CENTER);
-        north.add(UiKit.buttonBar(ajouter, modifier, supprimer, vider), BorderLayout.SOUTH);
+        north.add(topBar, BorderLayout.NORTH);
+        north.add(searchRow, BorderLayout.SOUTH);
 
         content.add(north, BorderLayout.NORTH);
         content.add(UiKit.tableScroll(table), BorderLayout.CENTER);
-        content.add(searchRow, BorderLayout.SOUTH);
         card.add(content, BorderLayout.CENTER);
         add(card, BorderLayout.CENTER);
+
+        UiKit.addActionsColumn(table, this::ouvrirModification, this::supprimer);
     }
 
     public void recharger() {
@@ -118,85 +106,81 @@ public class ProfPanel extends JPanel {
     private void afficher(List<Prof> profs) {
         model.setRowCount(0);
         for (Prof p : profs) {
-            model.addRow(new Object[]{p.getCodeprof(), p.getNom(), p.getPrenom(), p.getGrade()});
+            model.addRow(new Object[]{p.getCodeprof(), p.getNom(), p.getPrenom(), p.getGrade(), ""});
         }
     }
 
-    private void ajouter() {
-        try {
-            api.creerProf(lireFormulaire(true));
-            UiKit.info(this, "Professeur ajouté.");
-            recharger();
-            viderFormulaire();
-        } catch (Exception ex) {
-            UiKit.error(this, ex.getMessage());
+    private void ouvrirFormulaire(Prof existant) {
+        JTextField codeField = UiKit.field(16);
+        JTextField nomField = UiKit.field(16);
+        JTextField prenomField = UiKit.field(16);
+        JTextField gradeField = UiKit.field(16);
+
+        boolean modification = existant != null;
+        if (modification) {
+            codeField.setText(existant.getCodeprof());
+            codeField.setEditable(false);
+            nomField.setText(existant.getNom());
+            prenomField.setText(existant.getPrenom());
+            gradeField.setText(existant.getGrade());
         }
+
+        JPanel form = UiKit.formPanel();
+        UiKit.addFormRow(form, 0, "Code prof", codeField);
+        UiKit.addFormRow(form, 1, "Nom", nomField);
+        UiKit.addFormRow(form, 2, "Prénom", prenomField);
+        UiKit.addFormRow(form, 3, "Grade", gradeField);
+
+        Window owner = UiKit.windowOf(this);
+        JDialog dialog = UiKit.formDialog(owner,
+                modification ? "Modifier le professeur" : "Ajouter un professeur", form, () -> {
+                    String code = codeField.getText().trim();
+                    String nom = nomField.getText().trim();
+                    String prenom = prenomField.getText().trim();
+                    String grade = gradeField.getText().trim();
+                    if (code.isEmpty() || nom.isEmpty() || prenom.isEmpty() || grade.isEmpty()) {
+                        UiKit.error(this, "Tous les champs du professeur sont obligatoires.");
+                        return false;
+                    }
+                    try {
+                        Prof prof = new Prof(code, nom, prenom, grade);
+                        if (modification) {
+                            api.modifierProf(code, prof);
+                            UiKit.info(this, "Professeur modifié.");
+                        } else {
+                            api.creerProf(prof);
+                            UiKit.info(this, "Professeur ajouté.");
+                        }
+                        recharger();
+                        return true;
+                    } catch (Exception ex) {
+                        UiKit.error(this, ex.getMessage());
+                        return false;
+                    }
+                });
+        dialog.setVisible(true);
     }
 
-    private void modifier() {
-        if (table.getSelectedRow() < 0) {
-            UiKit.error(this, "Sélectionnez un professeur à modifier.");
-            return;
-        }
-        try {
-            String code = String.valueOf(model.getValueAt(table.getSelectedRow(), 0));
-            Prof prof = lireFormulaire(false);
-            prof.setCodeprof(code);
-            api.modifierProf(code, prof);
-            UiKit.info(this, "Professeur modifié.");
-            recharger();
-        } catch (Exception ex) {
-            UiKit.error(this, ex.getMessage());
-        }
+    private void ouvrirModification(int row) {
+        Prof prof = new Prof(
+                String.valueOf(model.getValueAt(row, 0)),
+                String.valueOf(model.getValueAt(row, 1)),
+                String.valueOf(model.getValueAt(row, 2)),
+                String.valueOf(model.getValueAt(row, 3))
+        );
+        ouvrirFormulaire(prof);
     }
 
-    private void supprimer() {
-        if (table.getSelectedRow() < 0) {
-            UiKit.error(this, "Sélectionnez un professeur à supprimer.");
-            return;
-        }
-        String code = String.valueOf(model.getValueAt(table.getSelectedRow(), 0));
+    private void supprimer(int row) {
+        String code = String.valueOf(model.getValueAt(row, 0));
         if (!UiKit.confirm(this, "Supprimer le professeur " + code + " ?")) {
             return;
         }
         try {
             api.supprimerProf(code);
             recharger();
-            viderFormulaire();
         } catch (Exception ex) {
             UiKit.error(this, ex.getMessage());
         }
-    }
-
-    private Prof lireFormulaire(boolean avecCode) {
-        String code = codeField.getText().trim();
-        String nom = nomField.getText().trim();
-        String prenom = prenomField.getText().trim();
-        String grade = gradeField.getText().trim();
-        if ((avecCode && code.isEmpty()) || nom.isEmpty() || prenom.isEmpty() || grade.isEmpty()) {
-            throw new IllegalArgumentException("Tous les champs du professeur sont obligatoires.");
-        }
-        return new Prof(code, nom, prenom, grade);
-    }
-
-    private void remplirDepuisSelection() {
-        int row = table.getSelectedRow();
-        if (row < 0) {
-            return;
-        }
-        codeField.setText(String.valueOf(model.getValueAt(row, 0)));
-        nomField.setText(String.valueOf(model.getValueAt(row, 1)));
-        prenomField.setText(String.valueOf(model.getValueAt(row, 2)));
-        gradeField.setText(String.valueOf(model.getValueAt(row, 3)));
-        codeField.setEditable(false);
-    }
-
-    private void viderFormulaire() {
-        table.clearSelection();
-        codeField.setText("");
-        nomField.setText("");
-        prenomField.setText("");
-        gradeField.setText("");
-        codeField.setEditable(true);
     }
 }

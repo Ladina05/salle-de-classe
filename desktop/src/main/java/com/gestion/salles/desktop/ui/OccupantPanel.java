@@ -7,23 +7,24 @@ import com.gestion.salles.desktop.model.Salle;
 
 import javax.swing.JButton;
 import javax.swing.JComboBox;
+import javax.swing.JDialog;
 import javax.swing.JPanel;
 import javax.swing.JSpinner;
 import javax.swing.JTable;
 import javax.swing.SpinnerDateModel;
 import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
+import java.awt.FlowLayout;
+import java.awt.Window;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Date;
 import java.util.List;
+import java.awt.Color;
 
 public class OccupantPanel extends JPanel {
 
     private final ApiClient api;
-    private final JComboBox<Prof> profCombo = new JComboBox<>();
-    private final JComboBox<Salle> salleCombo = new JComboBox<>();
-    private final JSpinner dateSpinner;
     private final DefaultTableModel model;
     private final JTable table;
 
@@ -32,81 +33,42 @@ public class OccupantPanel extends JPanel {
         this.api = api;
         setOpaque(false);
 
-        SpinnerDateModel dateModel = new SpinnerDateModel();
-        dateSpinner = new JSpinner(dateModel);
-        dateSpinner.setEditor(new JSpinner.DateEditor(dateSpinner, "dd/MM/yyyy"));
-
         model = new DefaultTableModel(
-                new Object[]{"Id", "Code prof", "Professeur", "Code salle", "Salle", "Date"}, 0) {
+                new Object[]{"Id", "Code prof", "Professeur", "Code salle", "Salle", "Date", "Actions"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
-                return false;
+                return column == 6;
             }
         };
         table = new JTable(model);
-        table.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                remplirDepuisSelection();
-            }
-        });
 
-        JPanel card = UiKit.card("CRUD occupations (OCCUPER)");
+        JPanel card = UiKit.card("Liste des occupations");
         JPanel content = new JPanel(new BorderLayout(10, 12));
         content.setOpaque(false);
 
-        JPanel form = UiKit.formPanel();
-        UiKit.addFormRow(form, 0, "Professeur", profCombo);
-        UiKit.addFormRow(form, 1, "Salle", salleCombo);
-        UiKit.addFormRow(form, 2, "Date", dateSpinner);
-
-        JButton ajouter = UiKit.primaryButton("Ajouter");
-        JButton modifier = UiKit.accentButton("Modifier");
-        JButton supprimer = UiKit.dangerButton("Supprimer");
-        JButton vider = UiKit.ghostButton("Vider le formulaire");
+        JButton ajouter = UiKit.primaryButton("Ajouter", new UiKit.PlusIcon(Color.WHITE, 13));
         JButton actualiser = UiKit.ghostButton("Actualiser");
-
-        ajouter.addActionListener(e -> ajouter());
-        modifier.addActionListener(e -> modifier());
-        supprimer.addActionListener(e -> supprimer());
-        vider.addActionListener(e -> viderFormulaire());
+        ajouter.addActionListener(e -> ouvrirFormulaire(null));
         actualiser.addActionListener(e -> recharger());
 
-        JPanel north = new JPanel(new BorderLayout(0, 10));
-        north.setOpaque(false);
-        north.add(form, BorderLayout.CENTER);
-        north.add(UiKit.buttonBar(ajouter, modifier, supprimer, vider, actualiser), BorderLayout.SOUTH);
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        toolbar.setOpaque(false);
+        toolbar.add(actualiser);
+        toolbar.add(ajouter);
 
-        content.add(north, BorderLayout.NORTH);
+        content.add(toolbar, BorderLayout.NORTH);
         content.add(UiKit.tableScroll(table), BorderLayout.CENTER);
         card.add(content, BorderLayout.CENTER);
         add(card, BorderLayout.CENTER);
+
+        UiKit.addActionsColumn(table, this::ouvrirModification, this::supprimer);
     }
 
     public void recharger() {
         try {
-            chargerCombos();
             afficher(api.listerOccupations());
         } catch (Exception ex) {
             UiKit.error(this, "Impossible de charger les occupations.\n" + ex.getMessage());
-        }
-    }
-
-    private void chargerCombos() throws Exception {
-        Prof selectedProf = (Prof) profCombo.getSelectedItem();
-        Salle selectedSalle = (Salle) salleCombo.getSelectedItem();
-        profCombo.removeAllItems();
-        salleCombo.removeAllItems();
-        for (Prof p : api.listerProfs()) {
-            profCombo.addItem(p);
-        }
-        for (Salle s : api.listerSalles()) {
-            salleCombo.addItem(s);
-        }
-        if (selectedProf != null) {
-            selectProf(selectedProf.getCodeprof());
-        }
-        if (selectedSalle != null) {
-            selectSalle(selectedSalle.getCodesal());
         }
     }
 
@@ -119,113 +81,112 @@ public class OccupantPanel extends JPanel {
                     o.getNomProf() + " " + o.getPrenomProf(),
                     o.getCodesal(),
                     o.getDesignationSalle(),
-                    o.getDate()
+                    o.getDate(),
+                    ""
             });
         }
     }
 
-    private void ajouter() {
-        try {
-            api.creerOccupation(lireFormulaire());
-            UiKit.info(this, "Occupation ajoutée.");
-            recharger();
-            viderFormulaire();
-        } catch (Exception ex) {
-            UiKit.error(this, ex.getMessage());
-        }
-    }
+    private void ouvrirFormulaire(Occupant existant) {
+        JComboBox<Prof> profCombo = new JComboBox<>();
+        JComboBox<Salle> salleCombo = new JComboBox<>();
+        SpinnerDateModel dateModel = new SpinnerDateModel();
+        JSpinner dateSpinner = new JSpinner(dateModel);
+        dateSpinner.setEditor(new JSpinner.DateEditor(dateSpinner, "dd/MM/yyyy"));
 
-    private void modifier() {
-        Long id = idSelection();
-        if (id == null) {
-            UiKit.error(this, "Sélectionnez une occupation à modifier.");
+        try {
+            for (Prof p : api.listerProfs()) {
+                profCombo.addItem(p);
+            }
+            for (Salle s : api.listerSalles()) {
+                salleCombo.addItem(s);
+            }
+        } catch (Exception ex) {
+            UiKit.error(this, "Impossible de charger les professeurs/salles.\n" + ex.getMessage());
             return;
         }
-        try {
-            api.modifierOccupation(id, lireFormulaire());
-            UiKit.info(this, "Occupation modifiée.");
-            recharger();
-        } catch (Exception ex) {
-            UiKit.error(this, ex.getMessage());
+
+        boolean modification = existant != null;
+        if (modification) {
+            selectProf(profCombo, existant.getCodeprof());
+            selectSalle(salleCombo, existant.getCodesal());
+            dateSpinner.setValue(Date.from(existant.getDate().atStartOfDay(ZoneId.systemDefault()).toInstant()));
         }
+
+        JPanel form = UiKit.formPanel();
+        UiKit.addFormRow(form, 0, "Professeur", profCombo);
+        UiKit.addFormRow(form, 1, "Salle", salleCombo);
+        UiKit.addFormRow(form, 2, "Date", dateSpinner);
+
+        Window owner = UiKit.windowOf(this);
+        JDialog dialog = UiKit.formDialog(owner,
+                modification ? "Modifier l'occupation" : "Ajouter une occupation", form, () -> {
+                    Prof prof = (Prof) profCombo.getSelectedItem();
+                    Salle salle = (Salle) salleCombo.getSelectedItem();
+                    if (prof == null || salle == null) {
+                        UiKit.error(this, "Choisissez un professeur et une salle.");
+                        return false;
+                    }
+                    Occupant occupant = new Occupant();
+                    occupant.setCodeprof(prof.getCodeprof());
+                    occupant.setCodesal(salle.getCodesal());
+                    occupant.setDate(toLocalDate((Date) dateSpinner.getValue()));
+                    try {
+                        if (modification) {
+                            api.modifierOccupation(existant.getId(), occupant);
+                            UiKit.info(this, "Occupation modifiée.");
+                        } else {
+                            api.creerOccupation(occupant);
+                            UiKit.info(this, "Occupation ajoutée.");
+                        }
+                        recharger();
+                        return true;
+                    } catch (Exception ex) {
+                        UiKit.error(this, ex.getMessage());
+                        return false;
+                    }
+                });
+        dialog.setVisible(true);
     }
 
-    private void supprimer() {
-        Long id = idSelection();
-        if (id == null) {
-            UiKit.error(this, "Sélectionnez une occupation à supprimer.");
-            return;
+    private void ouvrirModification(int row) {
+        Occupant occupant = new Occupant();
+        occupant.setId(((Number) model.getValueAt(row, 0)).longValue());
+        occupant.setCodeprof(String.valueOf(model.getValueAt(row, 1)));
+        occupant.setCodesal(String.valueOf(model.getValueAt(row, 3)));
+        Object dateValue = model.getValueAt(row, 5);
+        if (dateValue instanceof LocalDate date) {
+            occupant.setDate(date);
         }
+        ouvrirFormulaire(occupant);
+    }
+
+    private void supprimer(int row) {
+        Long id = ((Number) model.getValueAt(row, 0)).longValue();
         if (!UiKit.confirm(this, "Supprimer cette occupation ?")) {
             return;
         }
         try {
             api.supprimerOccupation(id);
             recharger();
-            viderFormulaire();
         } catch (Exception ex) {
             UiKit.error(this, ex.getMessage());
         }
     }
 
-    private Occupant lireFormulaire() {
-        Prof prof = (Prof) profCombo.getSelectedItem();
-        Salle salle = (Salle) salleCombo.getSelectedItem();
-        if (prof == null || salle == null) {
-            throw new IllegalArgumentException("Choisissez un professeur et une salle.");
-        }
-        Occupant o = new Occupant();
-        o.setCodeprof(prof.getCodeprof());
-        o.setCodesal(salle.getCodesal());
-        o.setDate(toLocalDate((Date) dateSpinner.getValue()));
-        return o;
-    }
-
-    private void remplirDepuisSelection() {
-        int row = table.getSelectedRow();
-        if (row < 0) {
-            return;
-        }
-        selectProf(String.valueOf(model.getValueAt(row, 1)));
-        selectSalle(String.valueOf(model.getValueAt(row, 3)));
-        Object dateValue = model.getValueAt(row, 5);
-        if (dateValue instanceof LocalDate date) {
-            dateSpinner.setValue(Date.from(date.atStartOfDay(ZoneId.systemDefault()).toInstant()));
-        }
-    }
-
-    private void viderFormulaire() {
-        table.clearSelection();
-        if (profCombo.getItemCount() > 0) {
-            profCombo.setSelectedIndex(0);
-        }
-        if (salleCombo.getItemCount() > 0) {
-            salleCombo.setSelectedIndex(0);
-        }
-        dateSpinner.setValue(new Date());
-    }
-
-    private Long idSelection() {
-        int row = table.getSelectedRow();
-        if (row < 0) {
-            return null;
-        }
-        return ((Number) model.getValueAt(row, 0)).longValue();
-    }
-
-    private void selectProf(String code) {
-        for (int i = 0; i < profCombo.getItemCount(); i++) {
-            if (code.equals(profCombo.getItemAt(i).getCodeprof())) {
-                profCombo.setSelectedIndex(i);
+    private void selectProf(JComboBox<Prof> combo, String code) {
+        for (int i = 0; i < combo.getItemCount(); i++) {
+            if (code.equals(combo.getItemAt(i).getCodeprof())) {
+                combo.setSelectedIndex(i);
                 return;
             }
         }
     }
 
-    private void selectSalle(String code) {
-        for (int i = 0; i < salleCombo.getItemCount(); i++) {
-            if (code.equals(salleCombo.getItemAt(i).getCodesal())) {
-                salleCombo.setSelectedIndex(i);
+    private void selectSalle(JComboBox<Salle> combo, String code) {
+        for (int i = 0; i < combo.getItemCount(); i++) {
+            if (code.equals(combo.getItemAt(i).getCodesal())) {
+                combo.setSelectedIndex(i);
                 return;
             }
         }
