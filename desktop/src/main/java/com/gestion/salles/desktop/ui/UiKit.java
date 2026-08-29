@@ -1,5 +1,8 @@
 package com.gestion.salles.desktop.ui;
 
+import com.github.lgooddatepicker.components.DatePicker;
+import com.github.lgooddatepicker.components.DatePickerSettings;
+
 import javax.swing.AbstractCellEditor;
 import javax.swing.BorderFactory;
 import javax.swing.Icon;
@@ -12,12 +15,12 @@ import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
+import javax.swing.SwingConstants;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.JTableHeader;
 import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableColumn;
-import javax.swing.SwingConstants;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -33,24 +36,24 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.RenderingHints;
-import java.awt.Shape;
 import java.awt.Window;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.awt.geom.AffineTransform;
 import java.awt.geom.Ellipse2D;
+import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.RoundRectangle2D;
+import java.time.LocalDate;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 public final class UiKit {
 
-    // Palette "professionnelle" : bleu marine profond + accents neutres
     public static final Color PRIMARY = new Color(30, 58, 95);
     public static final Color PRIMARY_DARK = new Color(18, 38, 63);
     public static final Color PRIMARY_LIGHT = new Color(226, 233, 244);
     public static final Color ACCENT = new Color(184, 138, 47);
+    public static final Color ACCENT_LIGHT = new Color(246, 236, 216);
     public static final Color BG = new Color(243, 245, 248);
     public static final Color CARD = Color.WHITE;
     public static final Color BORDER = new Color(226, 230, 236);
@@ -117,7 +120,6 @@ public final class UiKit {
         return button;
     }
 
-    /** Bouton de la barre de navigation (occupe toute la largeur disponible via GridLayout parent). */
     public static JButton navButton(String text) {
         JButton button = new JButton(text);
         button.setFont(font(15, Font.BOLD));
@@ -200,6 +202,28 @@ public final class UiKit {
         return bar;
     }
 
+    /** Sélecteur de date professionnel avec calendrier ; dates passées désactivées. */
+    /** Sélecteur de date professionnel avec calendrier ; dates passées désactivées. */
+    public static DatePicker datePicker() {
+        DatePickerSettings settings = new DatePickerSettings();
+        settings.setFormatForDatesCommonEra("dd/MM/yyyy");
+        settings.setColor(DatePickerSettings.DateArea.BackgroundOverallCalendarPanel, CARD);
+        settings.setColor(DatePickerSettings.DateArea.CalendarBackgroundNormalDates, CARD);
+        settings.setColor(DatePickerSettings.DateArea.CalendarBackgroundSelectedDate, PRIMARY);
+        settings.setColor(DatePickerSettings.DateArea.CalendarBackgroundVetoedDates, new Color(238, 238, 238));
+        settings.setColor(DatePickerSettings.DateArea.TextFieldBackgroundValidDate, CARD);
+        settings.setColor(DatePickerSettings.DateArea.DatePickerTextValidDate, TEXT);
+
+        DatePicker picker = new DatePicker(settings);
+
+        // Le veto policy doit être défini APRÈS la construction du DatePicker parent.
+        settings.setVetoPolicy(date -> date != null && !date.isBefore(LocalDate.now()));
+
+        picker.getComponentDateTextField().setFont(font(13, Font.PLAIN));
+        picker.getComponentDateTextField().setMargin(new Insets(6, 8, 6, 8));
+        return picker;
+    }
+
     public static JScrollPane tableScroll(JTable table) {
         table.setRowHeight(38);
         table.setFont(font(13, Font.PLAIN));
@@ -222,7 +246,6 @@ public final class UiKit {
         return scroll;
     }
 
-    /** Renderer d'en-tête : texte centré, gras, et ligne de séparation en bas. */
     private static class HeaderCellRenderer extends DefaultTableCellRenderer {
         HeaderCellRenderer() {
             setHorizontalAlignment(SwingConstants.CENTER);
@@ -244,10 +267,7 @@ public final class UiKit {
         }
     }
 
-    /**
-     * Transforme la dernière colonne d'un JTable en colonne "Actions" avec
-     * une icône Modifier (crayon) et une icône Supprimer (corbeille) par ligne.
-     */
+    /** Colonne Actions à 2 boutons (Modifier / Supprimer) — utilisée par Profs et Occupations. */
     public static void addActionsColumn(JTable table, Consumer<Integer> onEdit, Consumer<Integer> onDelete) {
         int lastColumn = table.getColumnCount() - 1;
         TableColumn column = table.getColumnModel().getColumn(lastColumn);
@@ -256,6 +276,18 @@ public final class UiKit {
         column.setPreferredWidth(110);
         column.setMinWidth(110);
         column.setMaxWidth(110);
+    }
+
+    /** Colonne Actions à 3 boutons (Voir occupations / Modifier / Supprimer) — utilisée par Salles. */
+    public static void addSalleActionsColumn(JTable table, Consumer<Integer> onView,
+                                             Consumer<Integer> onEdit, Consumer<Integer> onDelete) {
+        int lastColumn = table.getColumnCount() - 1;
+        TableColumn column = table.getColumnModel().getColumn(lastColumn);
+        column.setCellRenderer(new SalleActionsCell());
+        column.setCellEditor(new SalleActionsCellEditor(onView, onEdit, onDelete));
+        column.setPreferredWidth(190);
+        column.setMinWidth(190);
+        column.setMaxWidth(190);
     }
 
     private static JButton iconActionButton(Icon icon, Color bg, Color fg, String tooltip) {
@@ -316,7 +348,63 @@ public final class UiKit {
         }
     }
 
-    /** Bouton avec fond arrondi peint manuellement (texte et/ou icône). */
+    private static class SalleActionsCell extends JPanel implements TableCellRenderer {
+        SalleActionsCell() {
+            super(new FlowLayout(FlowLayout.CENTER, 6, 2));
+            setOpaque(true);
+            add(iconActionButton(new CalendarIcon(ACCENT, 16), ACCENT_LIGHT, ACCENT, "Voir occupations"));
+            add(iconActionButton(new PencilIcon(PRIMARY, 16), PRIMARY_LIGHT, PRIMARY, "Modifier"));
+            add(iconActionButton(new TrashIcon(DANGER, 16), DANGER_LIGHT, DANGER, "Supprimer"));
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
+                                                       boolean hasFocus, int row, int column) {
+            setBackground(isSelected ? new Color(230, 236, 244) : Color.WHITE);
+            return this;
+        }
+    }
+
+    private static class SalleActionsCellEditor extends AbstractCellEditor implements TableCellEditor {
+        private final JPanel panel = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 2));
+        private int currentRow;
+
+        SalleActionsCellEditor(Consumer<Integer> onView, Consumer<Integer> onEdit, Consumer<Integer> onDelete) {
+            panel.setOpaque(true);
+            JButton view = iconActionButton(new CalendarIcon(ACCENT, 16), ACCENT_LIGHT, ACCENT, "Voir occupations");
+            JButton edit = iconActionButton(new PencilIcon(PRIMARY, 16), PRIMARY_LIGHT, PRIMARY, "Modifier");
+            JButton delete = iconActionButton(new TrashIcon(DANGER, 16), DANGER_LIGHT, DANGER, "Supprimer");
+            view.addActionListener(e -> {
+                fireEditingStopped();
+                onView.accept(currentRow);
+            });
+            edit.addActionListener(e -> {
+                fireEditingStopped();
+                onEdit.accept(currentRow);
+            });
+            delete.addActionListener(e -> {
+                fireEditingStopped();
+                onDelete.accept(currentRow);
+            });
+            panel.add(view);
+            panel.add(edit);
+            panel.add(delete);
+        }
+
+        @Override
+        public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected,
+                                                     int row, int column) {
+            currentRow = row;
+            panel.setBackground(new Color(230, 236, 244));
+            return panel;
+        }
+
+        @Override
+        public Object getCellEditorValue() {
+            return "";
+        }
+    }
+
     private static class RoundedButton extends JButton {
         private final int radius;
 
@@ -361,7 +449,6 @@ public final class UiKit {
         }
     }
 
-    /** Icône "+" pour les boutons Ajouter. */
     public static class PlusIcon implements Icon {
         private final Color color;
         private final int size;
@@ -396,7 +483,6 @@ public final class UiKit {
         }
     }
 
-    /** Icône loupe pour les boutons Rechercher. */
     public static class SearchIcon implements Icon {
         private final Color color;
         private final int size;
@@ -432,7 +518,6 @@ public final class UiKit {
         }
     }
 
-    /** Icône crayon claire : corps rectangulaire incliné + pointe triangulaire, entièrement remplis. */
     private static class PencilIcon implements Icon {
         private final Color color;
         private final int size;
@@ -464,7 +549,6 @@ public final class UiKit {
             float startX = (size - bodyWidth) / 2f;
             float startY = size * 0.08f;
 
-            // Corps du crayon
             Path2D body = new Path2D.Float();
             body.moveTo(startX, startY + bodyLength * 0.22f);
             body.lineTo(startX + bodyWidth, startY + bodyLength * 0.22f);
@@ -474,7 +558,6 @@ public final class UiKit {
             g2.setColor(color);
             g2.fill(body);
 
-            // Pointe (triangle)
             Path2D tip = new Path2D.Float();
             tip.moveTo(startX, startY + bodyLength * 0.22f);
             tip.lineTo(startX + bodyWidth, startY + bodyLength * 0.22f);
@@ -482,14 +565,12 @@ public final class UiKit {
             tip.closePath();
             g2.fill(tip);
 
-            // Gomme (petit carré au sommet)
             g2.fillRoundRect((int) startX, (int) (startY + bodyLength), (int) bodyWidth, (int) (size * 0.09f), 2, 2);
 
             g2.dispose();
         }
     }
 
-    /** Icône corbeille claire : couvercle plein + corps trapézoïdal plein avec rainures claires. */
     private static class TrashIcon implements Icon {
         private final Color color;
         private final int size;
@@ -520,18 +601,15 @@ public final class UiKit {
             float lidY = size * 0.26f;
             float lidHeight = size * 0.09f;
 
-            // Couvercle
             RoundRectangle2D lid = new RoundRectangle2D.Float(margin, lidY, size - 2 * margin, lidHeight, 2, 2);
             g2.fill(lid);
 
-            // Poignée
             float handleW = size * 0.34f;
             float handleH = size * 0.10f;
             float handleX = (size - handleW) / 2f;
             RoundRectangle2D handle = new RoundRectangle2D.Float(handleX, lidY - handleH + 1, handleW, handleH, 2, 2);
             g2.fill(handle);
 
-            // Corps (trapèze plein)
             float bodyTop = lidY + lidHeight + size * 0.03f;
             float bodyBottom = size - margin * 0.6f;
             float topW = size - 2 * margin - size * 0.06f;
@@ -547,16 +625,69 @@ public final class UiKit {
             bodyShape.closePath();
             g2.fill(bodyShape);
 
-            // Rainures verticales (en creux, couleur blanche pour contraster sur le fond plein)
             g2.setColor(Color.WHITE);
             g2.setStroke(new BasicStroke(Math.max(1.2f, size * 0.07f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             float grooveTop = bodyTop + (bodyBottom - bodyTop) * 0.18f;
             float grooveBottom = bodyBottom - (bodyBottom - bodyTop) * 0.16f;
             float mid = size / 2f;
             float offset = topW * 0.2f;
-            g2.draw(new java.awt.geom.Line2D.Float(mid, grooveTop, mid, grooveBottom));
-            g2.draw(new java.awt.geom.Line2D.Float(mid - offset, grooveTop, mid - offset * 0.82f, grooveBottom));
-            g2.draw(new java.awt.geom.Line2D.Float(mid + offset, grooveTop, mid + offset * 0.82f, grooveBottom));
+            g2.draw(new Line2D.Float(mid, grooveTop, mid, grooveBottom));
+            g2.draw(new Line2D.Float(mid - offset, grooveTop, mid - offset * 0.82f, grooveBottom));
+            g2.draw(new Line2D.Float(mid + offset, grooveTop, mid + offset * 0.82f, grooveBottom));
+
+            g2.dispose();
+        }
+    }
+
+    private static class CalendarIcon implements Icon {
+        private final Color color;
+        private final int size;
+
+        CalendarIcon(Color color, int size) {
+            this.color = color;
+            this.size = size;
+        }
+
+        @Override
+        public int getIconWidth() {
+            return size;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return size;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.translate(x, y);
+            g2.setColor(color);
+
+            float margin = size * 0.10f;
+            float top = size * 0.24f;
+            float bodyW = size - 2 * margin;
+            float bodyH = size - top - margin;
+
+            g2.setStroke(new BasicStroke(Math.max(1.3f, size * 0.09f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            RoundRectangle2D bodyOutline = new RoundRectangle2D.Float(margin, top, bodyW, bodyH, 3, 3);
+            g2.draw(bodyOutline);
+
+            g2.fill(new RoundRectangle2D.Float(margin, top, bodyW, bodyH * 0.3f, 3, 3));
+
+            float ringY1 = top - size * 0.09f;
+            g2.setStroke(new BasicStroke(Math.max(1.2f, size * 0.08f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            float ring1X = margin + bodyW * 0.25f;
+            float ring2X = margin + bodyW * 0.75f;
+            g2.draw(new Line2D.Float(ring1X, ringY1, ring1X, top + bodyH * 0.06f));
+            g2.draw(new Line2D.Float(ring2X, ringY1, ring2X, top + bodyH * 0.06f));
+
+            float dotSize = size * 0.09f;
+            float rowY = top + bodyH * 0.58f;
+            g2.fill(new Ellipse2D.Float(margin + bodyW * 0.22f - dotSize / 2, rowY, dotSize, dotSize));
+            g2.fill(new Ellipse2D.Float(margin + bodyW * 0.5f - dotSize / 2, rowY, dotSize, dotSize));
+            g2.fill(new Ellipse2D.Float(margin + bodyW * 0.78f - dotSize / 2, rowY, dotSize, dotSize));
 
             g2.dispose();
         }

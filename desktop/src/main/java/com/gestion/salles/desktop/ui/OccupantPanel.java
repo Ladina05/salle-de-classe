@@ -4,29 +4,27 @@ import com.gestion.salles.desktop.api.ApiClient;
 import com.gestion.salles.desktop.model.Occupant;
 import com.gestion.salles.desktop.model.Prof;
 import com.gestion.salles.desktop.model.Salle;
+import com.github.lgooddatepicker.components.DatePicker;
 
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JPanel;
-import javax.swing.JSpinner;
 import javax.swing.JTable;
-import javax.swing.SpinnerDateModel;
 import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.FlowLayout;
 import java.awt.Window;
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.util.Date;
+import java.util.ArrayList;
 import java.util.List;
-import java.awt.Color;
 
 public class OccupantPanel extends JPanel {
 
     private final ApiClient api;
     private final DefaultTableModel model;
     private final JTable table;
+    private List<Occupant> occupationsCourantes = new ArrayList<>();
 
     public OccupantPanel(ApiClient api) {
         super(new BorderLayout(12, 12));
@@ -34,10 +32,10 @@ public class OccupantPanel extends JPanel {
         setOpaque(false);
 
         model = new DefaultTableModel(
-                new Object[]{"Id", "Code prof", "Professeur", "Code salle", "Salle", "Date", "Actions"}, 0) {
+                new Object[]{"N°", "Professeur", "Salle", "Date", "Actions"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
-                return column == 6;
+                return column == 4;
             }
         };
         table = new JTable(model);
@@ -66,7 +64,8 @@ public class OccupantPanel extends JPanel {
 
     public void recharger() {
         try {
-            afficher(api.listerOccupations());
+            occupationsCourantes = api.listerOccupations();
+            afficher(occupationsCourantes);
         } catch (Exception ex) {
             UiKit.error(this, "Impossible de charger les occupations.\n" + ex.getMessage());
         }
@@ -77,9 +76,7 @@ public class OccupantPanel extends JPanel {
         for (Occupant o : occupants) {
             model.addRow(new Object[]{
                     o.getId(),
-                    o.getCodeprof(),
                     o.getNomProf() + " " + o.getPrenomProf(),
-                    o.getCodesal(),
                     o.getDesignationSalle(),
                     o.getDate(),
                     ""
@@ -90,9 +87,7 @@ public class OccupantPanel extends JPanel {
     private void ouvrirFormulaire(Occupant existant) {
         JComboBox<Prof> profCombo = new JComboBox<>();
         JComboBox<Salle> salleCombo = new JComboBox<>();
-        SpinnerDateModel dateModel = new SpinnerDateModel();
-        JSpinner dateSpinner = new JSpinner(dateModel);
-        dateSpinner.setEditor(new JSpinner.DateEditor(dateSpinner, "dd/MM/yyyy"));
+        DatePicker datePicker = UiKit.datePicker();
 
         try {
             for (Prof p : api.listerProfs()) {
@@ -110,27 +105,30 @@ public class OccupantPanel extends JPanel {
         if (modification) {
             selectProf(profCombo, existant.getCodeprof());
             selectSalle(salleCombo, existant.getCodesal());
-            dateSpinner.setValue(Date.from(existant.getDate().atStartOfDay(ZoneId.systemDefault()).toInstant()));
+            datePicker.setDate(existant.getDate());
+        } else {
+            profCombo.setSelectedIndex(-1);
+            salleCombo.setSelectedIndex(-1);
         }
 
         JPanel form = UiKit.formPanel();
         UiKit.addFormRow(form, 0, "Professeur", profCombo);
         UiKit.addFormRow(form, 1, "Salle", salleCombo);
-        UiKit.addFormRow(form, 2, "Date", dateSpinner);
+        UiKit.addFormRow(form, 2, "Date", datePicker);
 
         Window owner = UiKit.windowOf(this);
         JDialog dialog = UiKit.formDialog(owner,
                 modification ? "Modifier l'occupation" : "Ajouter une occupation", form, () -> {
                     Prof prof = (Prof) profCombo.getSelectedItem();
                     Salle salle = (Salle) salleCombo.getSelectedItem();
-                    if (prof == null || salle == null) {
-                        UiKit.error(this, "Choisissez un professeur et une salle.");
+                    if (prof == null || salle == null || datePicker.getDate() == null) {
+                        UiKit.error(this, "Choisissez un professeur, une salle et une date.");
                         return false;
                     }
                     Occupant occupant = new Occupant();
                     occupant.setCodeprof(prof.getCodeprof());
                     occupant.setCodesal(salle.getCodesal());
-                    occupant.setDate(toLocalDate((Date) dateSpinner.getValue()));
+                    occupant.setDate(datePicker.getDate());
                     try {
                         if (modification) {
                             api.modifierOccupation(existant.getId(), occupant);
@@ -150,19 +148,17 @@ public class OccupantPanel extends JPanel {
     }
 
     private void ouvrirModification(int row) {
-        Occupant occupant = new Occupant();
-        occupant.setId(((Number) model.getValueAt(row, 0)).longValue());
-        occupant.setCodeprof(String.valueOf(model.getValueAt(row, 1)));
-        occupant.setCodesal(String.valueOf(model.getValueAt(row, 3)));
-        Object dateValue = model.getValueAt(row, 5);
-        if (dateValue instanceof LocalDate date) {
-            occupant.setDate(date);
+        if (row < 0 || row >= occupationsCourantes.size()) {
+            return;
         }
-        ouvrirFormulaire(occupant);
+        ouvrirFormulaire(occupationsCourantes.get(row));
     }
 
     private void supprimer(int row) {
-        Long id = ((Number) model.getValueAt(row, 0)).longValue();
+        if (row < 0 || row >= occupationsCourantes.size()) {
+            return;
+        }
+        Long id = occupationsCourantes.get(row).getId();
         if (!UiKit.confirm(this, "Supprimer cette occupation ?")) {
             return;
         }
@@ -190,9 +186,5 @@ public class OccupantPanel extends JPanel {
                 return;
             }
         }
-    }
-
-    private LocalDate toLocalDate(Date date) {
-        return date.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
     }
 }

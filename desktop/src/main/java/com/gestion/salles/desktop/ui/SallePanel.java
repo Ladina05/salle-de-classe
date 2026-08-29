@@ -1,19 +1,24 @@
 package com.gestion.salles.desktop.ui;
 
 import com.gestion.salles.desktop.api.ApiClient;
+import com.gestion.salles.desktop.model.Occupant;
 import com.gestion.salles.desktop.model.Salle;
 
+import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JDialog;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Dialog;
 import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.Window;
 import java.util.List;
-import java.awt.Color;
 
 public class SallePanel extends JPanel {
 
@@ -53,7 +58,7 @@ public class SallePanel extends JPanel {
         card.add(content, BorderLayout.CENTER);
         add(card, BorderLayout.CENTER);
 
-        UiKit.addActionsColumn(table, this::ouvrirModification, this::supprimer);
+        UiKit.addSalleActionsColumn(table, this::voirOccupations, this::ouvrirModification, this::supprimer);
     }
 
     public void recharger() {
@@ -133,5 +138,64 @@ public class SallePanel extends JPanel {
         } catch (Exception ex) {
             UiKit.error(this, ex.getMessage());
         }
+    }
+
+    private void voirOccupations(int row) {
+        String code = String.valueOf(model.getValueAt(row, 0));
+        String designation = String.valueOf(model.getValueAt(row, 1));
+        try {
+            List<Occupant> filtres = api.listerOccupations().stream()
+                    .filter(o -> code.equals(o.getCodesal()))
+                    .sorted((a, b) -> a.getDate().compareTo(b.getDate()))
+                    .toList();
+            afficherOccupationsDialog(designation, filtres);
+        } catch (Exception ex) {
+            UiKit.error(this, ex.getMessage());
+        }
+    }
+
+    private void afficherOccupationsDialog(String designation, List<Occupant> occupations) {
+        JPanel content = new JPanel(new BorderLayout(0, 14));
+        content.setBackground(UiKit.CARD);
+        content.setBorder(BorderFactory.createEmptyBorder(20, 24, 20, 24));
+
+        JLabel title = new JLabel("Occupations — " + designation);
+        title.setFont(UiKit.font(15, Font.BOLD));
+        title.setForeground(UiKit.PRIMARY_DARK);
+        content.add(title, BorderLayout.NORTH);
+
+        if (occupations.isEmpty()) {
+            JLabel empty = new JLabel("Aucune occupation enregistrée pour cette salle.");
+            empty.setFont(UiKit.font(13, Font.PLAIN));
+            empty.setForeground(UiKit.MUTED);
+            empty.setBorder(BorderFactory.createEmptyBorder(24, 0, 24, 0));
+            content.add(empty, BorderLayout.CENTER);
+        } else {
+            DefaultTableModel occModel = new DefaultTableModel(new Object[]{"Professeur", "Date"}, 0) {
+                @Override
+                public boolean isCellEditable(int row, int column) {
+                    return false;
+                }
+            };
+            for (Occupant o : occupations) {
+                occModel.addRow(new Object[]{o.getNomProf() + " " + o.getPrenomProf(), o.getDate()});
+            }
+            JTable occTable = new JTable(occModel);
+            content.add(UiKit.tableScroll(occTable), BorderLayout.CENTER);
+        }
+
+        JButton fermer = UiKit.ghostButton("Fermer");
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        buttons.setOpaque(false);
+        buttons.add(fermer);
+        content.add(buttons, BorderLayout.SOUTH);
+
+        JDialog dialog = new JDialog(UiKit.windowOf(this), "Occupations de la salle", Dialog.ModalityType.APPLICATION_MODAL);
+        fermer.addActionListener(e -> dialog.dispose());
+        dialog.setContentPane(content);
+        dialog.setSize(440, occupations.isEmpty() ? 220 : 420);
+        dialog.setLocationRelativeTo(UiKit.windowOf(this));
+        dialog.setResizable(false);
+        dialog.setVisible(true);
     }
 }
